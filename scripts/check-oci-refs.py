@@ -33,6 +33,11 @@ TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
 
+
+class UnexpectedResponseError(ValueError):
+    """A 200 from the packages API whose JSON body is not a versions array."""
+
+
 # ── Check 1: no ublue-os refs ────────────────────────────────────────────────
 # The org migration from ublue-os to projectbluefin is complete.
 # ghcr.io/ublue-os/ must not appear in workflow files or docs.
@@ -144,6 +149,10 @@ def tag_exists_in_ghcr(image: str, tag: str):
             try:
                 with urllib.request.urlopen(req) as resp:
                     versions = json.loads(resp.read())
+                if not isinstance(versions, list):
+                    raise UnexpectedResponseError(
+                        f"expected a JSON array, got {type(versions).__name__}"
+                    )
                 last_error = None
                 break
             except urllib.error.HTTPError as e:
@@ -168,10 +177,12 @@ def tag_exists_in_ghcr(image: str, tag: str):
                 TimeoutError,
                 http.client.HTTPException,
                 json.JSONDecodeError,
+                UnexpectedResponseError,
             ) as e:
                 # Dropped connections, resets, DNS/socket timeouts, bodies
-                # cut off mid-transfer (IncompleteRead), and malformed
-                # bodies never reach an HTTP status; retry them like a 5xx.
+                # cut off mid-transfer (IncompleteRead), and malformed or
+                # non-array bodies never reach an HTTP status; retry them
+                # like a 5xx.
                 last_error = e
                 if attempt < MAX_RETRIES:
                     time.sleep(RETRY_BACKOFF_SECONDS * (2 ** attempt))

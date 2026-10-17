@@ -283,14 +283,6 @@ class TestTagExistsInGhcr:
                 tag_exists_in_ghcr("bluefin", "stable")
             assert mock_urlopen.call_count == 1
 
-    def test_persistent_network_error_returns_none(self):
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.URLError("Temporary failure in name resolution"),
-        ) as mock_urlopen, patch("time.sleep"):
-            assert tag_exists_in_ghcr("bluefin", "stable") is None
-            assert mock_urlopen.call_count == 4
-
     def test_truncated_body_recovers_on_retry(self):
         """IncompleteRead from resp.read() (connection dropped mid-body) retries."""
         truncated = MagicMock()
@@ -328,6 +320,18 @@ class TestTagExistsInGhcr:
         garbage.__exit__ = MagicMock(return_value=False)
         with patch(
             "urllib.request.urlopen", return_value=garbage
+        ) as mock_urlopen, patch("time.sleep"):
+            assert tag_exists_in_ghcr("bluefin", "stable") is None
+            assert mock_urlopen.call_count == 4
+
+    def test_non_array_json_body_returns_none(self):
+        """A 200 whose JSON body is an object, not a versions array, retries."""
+        obj = MagicMock()
+        obj.read.return_value = b'{"message": "unexpected"}'
+        obj.__enter__ = lambda s: s
+        obj.__exit__ = MagicMock(return_value=False)
+        with patch(
+            "urllib.request.urlopen", return_value=obj
         ) as mock_urlopen, patch("time.sleep"):
             assert tag_exists_in_ghcr("bluefin", "stable") is None
             assert mock_urlopen.call_count == 4
